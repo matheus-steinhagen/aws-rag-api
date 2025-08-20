@@ -1,3 +1,5 @@
+#scripts/generate_token.py
+
 import jwt
 import time
 from pathlib import Path
