@@ -1,13 +1,12 @@
 ## DynamoDB — Modelagem single-table
 
 ### Tabela: `PromptHistory`
-**PK**: `userId` (string) — ID do usuário  
-**SK**: `ts#<timestamp>` (string) — ordena prompts por data
+**PK**: `user_id` (string) — ID do usuário
+**SK**: `request_id` (string) — identificador único da requisição
 
 ### Atributos adicionais
 - `prompt` (string)
 - `response` (string)
-- `sourceDocs` (lista) — documentos usados no contexto RAG
 
 ### GSI1: `prompt-index`
 - **PK**: `prompt`
@@ -20,7 +19,7 @@
 ```json
 {
   "userId": "user123",
-  "SK": "ts#2025-08-15T15:30:00Z",
+  "SK": "req-12345",
   "prompt": "Como funciona RAG?",
   "response": "Resposta simulada...",
   "sourceDocs": ["doc1", "doc2"]
@@ -29,13 +28,13 @@
 
 ## Fluxo de acesso
 1. Salvar histórico — após gerar resposta no /v1/generate, inserir item na tabela.
-2. Recuperar histórico por usuário — Query PK = userId ordenando por SK DESC.
-3. Buscar por prompt — usar GSI1 para filtrar todos os usuários que fizeram a mesma pergunta.
+2. Recuperar histórico — Query PK = user_id, retornando todos os requests feitos.
+3. Recuperar item específico — GetItem (user_id + request_id).
 
 ## Arquitetura geral
 - FastAPI recebe request
 - JWT Middleware valida e extrai claims
 - Endpoint /v1/auth/login gera JWT mock para testes
-- RAG Pipeline busca contexto em retrive_context
-- DynamoDB armazena histórico de interações (futuro)
-- LLM Provider gera resposta (mock ou real)
+- RAG Pipeline busca contexto em `retrive_context`
+- DynamoDB (via moto em `dev`, real em prod) armazena histórico.
+- LLM Provider gera resposta mockada.

@@ -135,7 +135,7 @@ def login_mock(req: LoginRequest):
 
     # Assinamos com algoritmo RS256 e incluímos o "kid" no header
     token = jwt.encode(payload,private_key, algorithm="RS256", headers={"kid": "test-key-1"})
-    return {"access_token": token}
+    return {"access_token": token, "token_type": "Bearer"}
 
 
 # --------------------------------------------------

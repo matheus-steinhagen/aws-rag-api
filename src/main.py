@@ -43,10 +43,18 @@ from src.utils.idempotency import InMemoryIdempotencyStore
 from src.utils.retry import retry_async
 from src.utils.circuit_breaker import CircuitBreaker
 
+from src.config import settings
+
+# Repositório para persistir dados no DynamoDB
+from src.repositories.dynamo_repository import DynamoRepository
+dynamo_repo = DynamoRepository()
+
 # Configuramos logging global → todos os logs seguem o mesmo formato
 configure_logging()
 import logging
 log = logging.getLogger("awsProject.main")
+log.info("Start app (env=%s) FORCE_FAIL_ALWAYS=%s FORCE_FAIL_PERCENT=%s",
+         settings.ENV, settings.FORCE_FAIL_ALWAYS, settings.FORCE_FAIL_PERCENT)
 
 # --------------------------------------------------
 # Instancia a aplicação FastAPI
@@ -212,7 +220,17 @@ async def generate(
         )
     
     # Para treino: se o prompt contiver 'fail', simulamos falha transitória
-    should_fail = "fail" in req.prompt.lower() or "falha" in req.prompt.lower()
+    # O comportamento é controlado por configurações
+    # - se settings.FORCE_FAIL_ALWAYS é TRUE -> sempre falha quando "fail" está no prompt
+    # - caso contrário, falha com probabilidade settings.FORCE_FAIL_PERCENT
+    prompt_lower = req.prompt.lower()
+    if "fail" in prompt_lower or "falha" in prompt_lower:
+        if settings.FORCE_FAIL_ALWAYS:
+            should_fail = True
+        else:
+            should_fail = (random.random() < float(settings.FORCE_FAIL_PERCENT))
+    else:
+        should_fail = False
 
     async def call_provider():
         if should_fail and random.random() < 0.7:
@@ -247,6 +265,18 @@ async def generate(
         "request_id": request_id
     }
 
+    try:
+        dynamo_repo.save_item(
+            user_id=user_claims.get("sub"),
+            request_id=request_id,
+            prompt=req.prompt,
+            response=result
+        )
+    except Exception as e:
+        log.error("Erro ao salvar no DynamoDB request_id=%s user=%s: %s",
+                  request_id, user_claims.get("sub"), str(e))
+        # Não lançamos erro para o usuário → a geração funciona mesmo sem salvar
+
     if idempotency_key:
         idempotency_store.put(idempotency_key, incoming_body, result)
         response.headers["Idempotency-Replay"] = "false"
@@ -254,6 +284,40 @@ async def generate(
             lock.release()
 
     return result
+
+# --------------------------------------------------
+# Endpoint /history
+# --------------------------------------------------
+@v1.get("/history")
+async def history(
+    request: Request,
+    limit: int = 10 # opcional: permite limitar resultados
+):
+    """
+    Lista histórico de prompts/respostas de um usuário
+    - Protegido por JWT (precisa token válido)
+    - Usa DynamoRepository.list_items()
+    """
+    user_claims = getattr(request.state, "user", {})
+    if not user_claims:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid token"
+        )
+    
+    user_id = user_claims.get("sub")
+    try:
+        items = dynamo_repo.list_items(user_id)
+    except Exception as e:
+        log.error("Erro ao buscar histórico no Dynamo user=%s: %s", user_id, str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Erro ao buscar histórico"
+        )
+    
+    # Ordena por request_id ou por tempo, se tivermos
+    items_sorted = sorted(items, key=lambda x: x.get("request_id"), reverse=True)
+    return items_sorted[:limit]
 
 # --------------------------------------------------
 # Registrar router no app principal

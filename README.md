@@ -17,8 +17,16 @@ O projeto é voltado para testes, aprendizado de arquitetura de APIs e demonstra
 - Simula respostas de modelos de linguagem (GPT, Bedrock) de forma assíncrona.
 - Permite testar endpoints sem custo de APIs externas.
 
+**Histórico em DynamoDB (simulado):**
+- Cada geração é salva em uma tabela DynamoDB (mock via `moto`).
+- Endpoint `/v1/history` lista histórico do usuário autenticado.
+
 **Boas práticas de API:**
-- Versionamento (/v1), healthcheck (/v1/health), idempotência (Idempotency-Key), logging estruturado, retry e circuit breaker.
+- Versionamento (`/v1`).
+- Healthcheck (`/v1/health`).
+- Logging estruturado.
+- Testes automatizados.
+- Idempotência, circuit breaker e retry.
 
 ## Estrutura
 ```bash
